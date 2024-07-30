@@ -463,7 +463,7 @@ class LocalHyperdrive(Hyperdrive):
 
         deployed_hyperdrive_pool = deploy_hyperdrive_from_factory(
             chain._web3,
-            chain.get_deployer_account(),
+            deployer_account,
             deployed_base_and_vault,
             deployed_hyperdrive_factory,
             deployed_coordinator,

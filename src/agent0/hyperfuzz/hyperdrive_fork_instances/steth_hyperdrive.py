@@ -1,3 +1,7 @@
+import eth_abi
+from eth_account.account import Account
+from eth_account.signers.local import LocalAccount
+from fixedpointmath import FixedPoint
 from hexbytes import HexBytes
 
 from agent0 import LocalChain, LocalHyperdrive
@@ -27,7 +31,13 @@ class StethHyperdrive(LocalHyperdrive):
     def _deploy_hyperdrive(self, config: LocalHyperdrive.Config, chain: LocalChain):
 
         (factory_deploy_config, pool_deploy_config) = self._build_deploy_config(config)
-        deployer_account = chain.get_deployer_account()
+        # The test instance contract assumes a specific account
+        # when deploying.
+        alice_pk = chain._web3.keccak(eth_abi.encode(["string"], ["alice"])).to_0x_hex()
+        # We initialize an agent using chain to fund the agent
+        deployer_agent = chain.init_agent(private_key=alice_pk, eth=FixedPoint(100))
+        deployer_account = deployer_agent.account
+        # deployer_account = chain.get_deployer_account()
 
         # Deploy the factory
         deployed_hyperdrive_factory = deploy_hyperdrive_factory(
@@ -37,7 +47,7 @@ class StethHyperdrive(LocalHyperdrive):
         )
 
         # Deploy the LP math contract
-        lp_math_contract = LPMathContract.deploy(w3=chain._web3, account=deployer_account.address)
+        lp_math_contract = LPMathContract.deploy(w3=chain._web3, account=deployer_account)
         # Deploying the target deployer contracts requires linking to the LPMath contract.
         # We do this by replacing the `linked_str` pattern with address of lp_math_contract.
         # The `linked_str` pattern is the identifier of the LP Math contract for
