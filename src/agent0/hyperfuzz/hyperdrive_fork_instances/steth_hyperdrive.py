@@ -1,3 +1,5 @@
+from hexbytes import HexBytes
+
 from agent0 import LocalChain, LocalHyperdrive
 from agent0.ethpy.base import (
     ETH_CONTRACT_ADDRESS,
@@ -14,7 +16,8 @@ from agent0.ethpy.hyperdrive import (
     deploy_hyperdrive_factory,
     deploy_hyperdrive_from_factory,
 )
-from agent0.hypertypes import StETHHyperdriveTestContract
+from agent0.hypertypes import LPMathContract, StETHHyperdriveTestContract
+from agent0.hypertypes.types.StETHHyperdriveTestContract import stethhyperdrivetest_bytecode
 
 
 class StethHyperdrive(LocalHyperdrive):
@@ -31,6 +34,18 @@ class StethHyperdrive(LocalHyperdrive):
             chain._web3,
             deployer_account,
             factory_deploy_config,
+        )
+
+        # Deploy the LP math contract
+        lp_math_contract = LPMathContract.deploy(w3=chain._web3, account=deployer_account.address)
+        # Deploying the target deployer contracts requires linking to the LPMath contract.
+        # We do this by replacing the `linked_str` pattern with address of lp_math_contract.
+        # The `linked_str` pattern is the identifier of the LP Math contract for
+        # "contracts/src/libraries/LPMath.sol"
+        linked_str = "__$2b4fa6f02a36eedfe41c65e8dd342257d3$__"
+        linked_contract_addr = lp_math_contract.address[2:].lower()
+        StETHHyperdriveTestContract.bytecode = HexBytes(
+            str(stethhyperdrivetest_bytecode).replace(linked_str, linked_contract_addr)
         )
 
         # Deploy the test instance
