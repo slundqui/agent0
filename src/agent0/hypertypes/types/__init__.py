@@ -30,6 +30,8 @@ from .ERC4626Target3DeployerContract import *
 from .EzETHHyperdriveTestContract import *
 from .EzETHHyperdriveTestTypes import *
 from .StETHTarget0DeployerContract import *
+from .StETHHyperdriveTestContract import *
+from .StETHHyperdriveTestTypes import *
 from .HyperdriveRegistryContract import *
 from .HyperdriveRegistryTypes import *
 from .IHyperdriveRegistryTypes import *
