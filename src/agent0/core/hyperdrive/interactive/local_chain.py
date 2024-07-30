@@ -62,6 +62,8 @@ class LocalChain(Chain):
         """The genesis timestamp (in epoch seconds) for the anvil chain. If None, uses the current time."""
         transaction_block_keeper: int = 10_000
         """The number of blocks to keep transaction records for. Undocumented in Anvil, we're being optimistic here."""
+        anvil_gas_limit: int | None = None
+        """The gas limit for the anvil chain. If None, uses the default Anvil gas limit."""
         snapshot_dir: str | None = None
         """
         The directory where the snapshot will be stored. 
@@ -174,6 +176,9 @@ class LocalChain(Chain):
         if config.block_timestamp_interval is not None:
             self._set_block_timestamp_interval(config.block_timestamp_interval)
 
+        if config.anvil_gas_limit is not None:
+            self._set_anvil_gas_limit(config.anvil_gas_limit)
+
         self.config = config
         self.dashboard_subprocess: subprocess.Popen | None = None
 
@@ -257,6 +262,15 @@ class LocalChain(Chain):
         next_blocktime = latest_blocktime + time_delta
         response = self._web3.provider.make_request(method=RPCEndpoint("evm_mine"), params=[next_blocktime])
 
+        # ensure response is valid
+        if "result" not in response:
+            raise KeyError("Response did not have a result.")
+
+    def _set_anvil_gas_limit(self, gas_limit: int) -> None:
+        response = self._web3.provider.make_request(
+            method=RPCEndpoint("evm_setBlockGasLimit"),
+            params=[gas_limit],
+        )
         # ensure response is valid
         if "result" not in response:
             raise KeyError("Response did not have a result.")
