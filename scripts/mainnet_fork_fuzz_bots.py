@@ -12,9 +12,10 @@ from typing import NamedTuple, Sequence
 import numpy as np
 from web3.exceptions import ContractCustomError
 
-from agent0 import LocalChain, LocalHyperdrive
+from agent0 import LocalChain
 from agent0.ethpy.base.errors import ContractCallException, UnknownBlockError
 from agent0.hyperfuzz import FuzzAssertionException
+from agent0.hyperfuzz.hyperdrive_fork_instances import StethHyperdrive
 from agent0.hyperfuzz.system_fuzz import generate_fuzz_hyperdrive_config, run_fuzz_bots
 from agent0.hyperlogs.rollbar_utilities import initialize_rollbar, log_rollbar_exception
 
@@ -131,10 +132,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     parsed_args = parse_arguments(argv)
 
-    if parsed_args.steth:
-        log_to_rollbar = initialize_rollbar("steth_localfuzzbots")
-    else:
-        raise NotImplementedError
+    log_to_rollbar = initialize_rollbar("forked_localfuzzbots")
 
     # Negative rng_seed means default
     if parsed_args.rng_seed < 0:
@@ -158,28 +156,20 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # Negative chain port means default
     if parsed_args.chain_port < 0:
-        if parsed_args.lp_share_price_test and parsed_args.steth:
+        if parsed_args.lp_share_price_test:
             chain_port = 1111
-        elif parsed_args.lp_share_price_test and not parsed_args.steth:
-            chain_port = 2222
-        elif not parsed_args.lp_share_price_test and parsed_args.steth:
+        elif not parsed_args.lp_share_price_test:
             chain_port = 3333
-        elif not parsed_args.lp_share_price_test and not parsed_args.steth:
-            chain_port = 4444
         else:
             assert False
     else:
         chain_port = parsed_args.chain_port
 
     # Set different ports if we're doing lp share price test
-    if parsed_args.lp_share_price_test and parsed_args.steth:
+    if parsed_args.lp_share_price_test:
         db_port = 5555
-    elif parsed_args.lp_share_price_test and not parsed_args.steth:
-        db_port = 6666
-    elif not parsed_args.lp_share_price_test and parsed_args.steth:
+    elif not parsed_args.lp_share_price_test:
         db_port = 7777
-    elif not parsed_args.lp_share_price_test and not parsed_args.steth:
-        db_port = 8888
     else:
         assert False
 
@@ -209,23 +199,26 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         # Fuzz over config values
         hyperdrive_config = generate_fuzz_hyperdrive_config(
-            rng, lp_share_price_test=parsed_args.lp_share_price_test, steth=parsed_args.steth
+            rng,
+            lp_share_price_test=parsed_args.lp_share_price_test,
+            steth=True,
         )
 
-        try:
-            hyperdrive_pool = LocalHyperdrive(chain, hyperdrive_config)
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error(
-                "Error deploying hyperdrive: %s",
-                repr(e),
-            )
-            log_rollbar_exception(
-                e,
-                log_level=logging.ERROR,
-                rollbar_log_prefix="Error deploying hyperdrive poolError deploying hyperdrive pool",
-            )
-            chain.cleanup()
-            continue
+        hyperdrive_pool = StethHyperdrive(chain, hyperdrive_config)
+        # try:
+        #    hyperdrive_pool = StethHyperdrive(chain, hyperdrive_config)
+        # except Exception as e:  # pylint: disable=broad-except
+        #    logging.error(
+        #        "Error deploying hyperdrive: %s",
+        #        repr(e),
+        #    )
+        #    log_rollbar_exception(
+        #        e,
+        #        log_level=logging.ERROR,
+        #        rollbar_log_prefix="Error deploying hyperdrive poolError deploying hyperdrive pool",
+        #    )
+        #    chain.cleanup()
+        #    continue
 
         raise_error_on_fail = False
         if parsed_args.pause_on_invariance_fail:
@@ -268,9 +261,7 @@ class Args(NamedTuple):
     pause_on_invariance_fail: bool
     chain_host: str
     chain_port: int
-    genesis_timestamp: int
     rng_seed: int
-    steth: bool
     rpc_uri: str
     fork_block: int
 
@@ -293,9 +284,7 @@ def namespace_to_args(namespace: argparse.Namespace) -> Args:
         pause_on_invariance_fail=namespace.pause_on_invariance_fail,
         chain_host=namespace.chain_host,
         chain_port=namespace.chain_port,
-        genesis_timestamp=namespace.genesis_timestamp,
         rng_seed=namespace.rng_seed,
-        steth=namespace.steth,
         rpc_uri=namespace.rpc_uri,
         fork_block=namespace.fork_block,
     )
@@ -352,22 +341,10 @@ def parse_arguments(argv: Sequence[str] | None = None) -> Args:
         help="The port to run anvil on.",
     )
     parser.add_argument(
-        "--genesis-timestamp",
-        type=int,
-        default=-1,
-        help="The timestamp of the genesis block. Defaults to current time.",
-    )
-    parser.add_argument(
         "--rng-seed",
         type=int,
         default=-1,
         help="The random seed to use for the fuzz run.",
-    )
-    parser.add_argument(
-        "--steth",
-        default=False,
-        action="store_true",
-        help="Runs fuzz testing on the steth hyperdrive",
     )
 
     # Use system arguments if none were passed

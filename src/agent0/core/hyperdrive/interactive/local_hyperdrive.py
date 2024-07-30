@@ -383,9 +383,7 @@ class LocalHyperdrive(Hyperdrive):
             other.hyperdrive_address,
         )
 
-    def _deploy_hyperdrive(
-        self, config: Config, chain: LocalChain
-    ) -> tuple[DeployedHyperdriveFactory, DeployedHyperdrivePool]:
+    def _build_deploy_config(self, config: Config) -> tuple[FactoryConfig, PoolDeployConfig]:
         # sanity check (also for type checking), should get set in __post_init__
         assert config.minimum_share_reserves is not None
         factory_deploy_config = FactoryConfig(
@@ -430,6 +428,14 @@ class LocalHyperdrive(Hyperdrive):
             checkpointRewarder="",  # will be determined in the deploy function
             fees=config._fees,  # pylint: disable=protected-access
         )
+
+        return (factory_deploy_config, pool_deploy_config)
+
+    def _deploy_hyperdrive(
+        self, config: Config, chain: LocalChain
+    ) -> tuple[DeployedHyperdriveFactory, DeployedHyperdrivePool]:
+
+        (factory_deploy_config, pool_deploy_config) = self._build_deploy_config(config)
 
         # TODO move deploying factory to be part of a parent, where deploying hyperdrive
         # only uses the factory
