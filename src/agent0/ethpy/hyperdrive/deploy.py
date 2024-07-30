@@ -80,7 +80,6 @@ class DeployedHyperdriveFactory(NamedTuple):
 
     deployer_account: LocalAccount
     factory_contract: HyperdriveFactoryContract
-    deployer_coordinator_contract: Contract
     registry_contract: HyperdriveRegistryContract
     factory_deploy_config: FactoryConfig
 
@@ -199,8 +198,6 @@ def deploy_base_and_vault(
 def deploy_hyperdrive_factory(
     web3: Web3,
     deployer_account: LocalAccount,
-    deployed_base_and_vault: DeployedBaseAndVault,
-    deploy_type: HyperdriveDeployType,
     factory_deploy_config: FactoryConfig,
 ) -> DeployedHyperdriveFactory:
     """Deploys the hyperdrive factory and supporting contracts on the rpc_uri chain.
@@ -240,9 +237,41 @@ def deploy_hyperdrive_factory(
     return _deploy_hyperdrive_factory(
         web3,
         deployer_account,
+        factory_deploy_config,
+    )
+
+
+def deploy_hyperdrive_coordinator(
+    web3: Web3,
+    deployer_account: LocalAccount,
+    deployed_factory: DeployedHyperdriveFactory,
+    deployed_base_and_vault: DeployedBaseAndVault,
+    deploy_type: HyperdriveDeployType,
+) -> Contract:
+    """Deploys the hyperdrive coordinator and adds the deployer to the factory.
+
+    Arguments
+    ---------
+    web3: Web3
+        Web3 provider object.
+    deployer_account: LocalAccount
+        The account that's deploying the contract.
+    deployed_base_and_vault: DeployedBaseAndVault
+        The base and vault contracts that were deployed on the local chain.
+    deploy_type: HyperdriveDeployType
+        The deploy type for the hyperdrive pool.
+
+    Returns
+    -------
+    Contract
+        The deployed hyperdrive coordinator.
+    """
+    return _deploy_hyperdrive_coordinator(
+        web3,
+        deployer_account,
+        deployed_factory,
         deployed_base_and_vault,
         deploy_type,
-        factory_deploy_config,
     )
 
 
@@ -251,6 +280,7 @@ def deploy_hyperdrive_from_factory(
     deployer_account: LocalAccount,
     deployed_base_and_vault: DeployedBaseAndVault,
     deployed_factory: DeployedHyperdriveFactory,
+    deployed_coordinator: Contract,
     deploy_type: HyperdriveDeployType,
     initial_liquidity: FixedPoint,
     initial_fixed_apr: FixedPoint,
@@ -269,6 +299,8 @@ def deploy_hyperdrive_from_factory(
         The base and vault contracts that were deployed on the local chain.
     deployed_factory: DeployedHyperdriveFactory
         The factory and supporting contracts that were deployed on the local chain.
+    deployed_coordinator: Contract
+        The deployed hyperdrive coordinator.
     deploy_type: HyperdriveDeployType
         The deploy type for the hyperdrive pool.
     initial_liquidity: FixedPoint
@@ -316,7 +348,7 @@ def deploy_hyperdrive_from_factory(
         web3=web3,
         funding_account=deployer_account,
         funding_contract=base_token_contract,
-        contract_to_approve=deployed_factory.deployer_coordinator_contract,
+        contract_to_approve=deployed_coordinator,
         mint_amount=initial_liquidity,
     )
 
@@ -324,7 +356,7 @@ def deploy_hyperdrive_from_factory(
     hyperdrive_checksum_address = Web3.to_checksum_address(
         _deploy_and_initialize_hyperdrive_pool(
             web3,
-            deployed_factory.deployer_coordinator_contract.address,
+            deployed_coordinator.address,
             deploy_type,
             deployer_account,
             initial_liquidity,
@@ -400,6 +432,57 @@ def _initialize_deployment_account(web3: Web3, account_private_key: str) -> Loca
     # Ensure this private key is actually matched to the first address of anvil
     assert web3.eth.accounts[0] == account.address
     return account
+
+
+def _deploy_hyperdrive_coordinator(
+    web3: Web3,
+    deployer_account: LocalAccount,
+    deployed_factory: DeployedHyperdriveFactory,
+    deployed_base_and_vault: DeployedBaseAndVault,
+    deploy_type: HyperdriveDeployType,
+):
+    deploy_account_addr = deployer_account.address
+    factory_contract = deployed_factory.factory_contract
+
+    lp_math_contract = LPMathContract.deploy(w3=web3, account=deploy_account_addr)
+    # Deploying the target deployer contracts requires linking to the LPMath contract.
+    # We do this by replacing the `linked_str` pattern with address of lp_math_contract.
+    # The `linked_str` pattern is the identifier of the LP Math contract for
+    # "contracts/src/libraries/LPMath.sol"
+    linked_str = "__$2b4fa6f02a36eedfe41c65e8dd342257d3$__"
+    linked_contract_addr = lp_math_contract.address[2:].lower()
+
+    match deploy_type:
+        case HyperdriveDeployType.ERC4626:
+            deployer_coordinator_contract = _deploy_erc4626_deployer(
+                web3, deploy_account_addr, factory_contract.address, linked_str, linked_contract_addr
+            )
+        case HyperdriveDeployType.STETH:
+            deployer_coordinator_contract = _deploy_steth_deployer(
+                web3,
+                deploy_account_addr,
+                factory_contract.address,
+                deployed_base_and_vault.vault_shares_token_contract.address,
+                linked_str,
+                linked_contract_addr,
+            )
+
+    add_deployer_coordinator_function = factory_contract.functions.addDeployerCoordinator(
+        deployer_coordinator_contract.address
+    )
+    function_name = add_deployer_coordinator_function.fn_name
+    function_args = add_deployer_coordinator_function.args
+    receipt = smart_contract_transact(
+        web3,
+        factory_contract,
+        deployer_account,
+        function_name,
+        *function_args,
+    )
+    if receipt["status"] != 1:
+        raise ValueError(f"Failed adding the Hyperdrive deployer to the factory.\n{receipt=}")
+
+    return deployer_coordinator_contract
 
 
 def _deploy_erc4626_deployer(
@@ -497,8 +580,6 @@ def _deploy_steth_deployer(
 def _deploy_hyperdrive_factory(
     web3: Web3,
     deployer_account: LocalAccount,
-    deployed_base_and_vault: DeployedBaseAndVault,
-    deploy_type: HyperdriveDeployType,
     factory_deploy_config: FactoryConfig,
 ) -> DeployedHyperdriveFactory:
     """Deploys the hyperdrive factory contract on the rpc_uri chain.
@@ -558,48 +639,9 @@ def _deploy_hyperdrive_factory(
     if receipt["status"] != 1:
         raise ValueError(f"Failed to register Hyperdrive factory.\n{receipt=}")
 
-    lp_math_contract = LPMathContract.deploy(w3=web3, account=deploy_account_addr)
-    # Deploying the target deployer contracts requires linking to the LPMath contract.
-    # We do this by replacing the `linked_str` pattern with address of lp_math_contract.
-    # The `linked_str` pattern is the identifier of the LP Math contract for
-    # "contracts/src/libraries/LPMath.sol"
-    linked_str = "__$2b4fa6f02a36eedfe41c65e8dd342257d3$__"
-    linked_contract_addr = lp_math_contract.address[2:].lower()
-
-    match deploy_type:
-        case HyperdriveDeployType.ERC4626:
-            deployer_coordinator_contract = _deploy_erc4626_deployer(
-                web3, deploy_account_addr, factory_contract.address, linked_str, linked_contract_addr
-            )
-        case HyperdriveDeployType.STETH:
-            deployer_coordinator_contract = _deploy_steth_deployer(
-                web3,
-                deploy_account_addr,
-                factory_contract.address,
-                deployed_base_and_vault.vault_shares_token_contract.address,
-                linked_str,
-                linked_contract_addr,
-            )
-
-    add_deployer_coordinator_function = factory_contract.functions.addDeployerCoordinator(
-        deployer_coordinator_contract.address
-    )
-    function_name = add_deployer_coordinator_function.fn_name
-    function_args = add_deployer_coordinator_function.args
-    receipt = smart_contract_transact(
-        web3,
-        factory_contract,
-        deployer_account,
-        function_name,
-        *function_args,
-    )
-    if receipt["status"] != 1:
-        raise ValueError(f"Failed adding the Hyperdrive deployer to the factory.\n{receipt=}")
-
     return DeployedHyperdriveFactory(
         deployer_account=deployer_account,
         factory_contract=factory_contract,
-        deployer_coordinator_contract=deployer_coordinator_contract,
         factory_deploy_config=factory_deploy_config,
         registry_contract=registry_contract,
     )

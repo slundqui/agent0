@@ -11,6 +11,7 @@ from .deploy import (
     DeployedHyperdrivePool,
     HyperdriveDeployType,
     deploy_base_and_vault,
+    deploy_hyperdrive_coordinator,
     deploy_hyperdrive_factory,
     deploy_hyperdrive_from_factory,
 )
