@@ -146,8 +146,8 @@ class LocalChain(Chain):
         self.anvil_process = subprocess.Popen(  # pylint: disable=consider-using-with
             # Suppressing output of anvil
             anvil_launch_args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
+            # stdout=subprocess.DEVNULL,
+            # stderr=subprocess.STDOUT,
             close_fds=True,
         )
 
