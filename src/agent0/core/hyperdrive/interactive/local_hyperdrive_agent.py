@@ -558,10 +558,7 @@ class LocalHyperdriveAgent(HyperdriveAgent):
                 raise TypeError("Pool must be an instance of LocalHyperdrive for a LocalHyperdriveAgent")
             pool_filter_arg = pool_filter
         else:
-            # TODO Typing is complaining list[LocalHyperdrive] is not a list[Hyperdrive]
-            # but LocalHyperdrive is a subclass of Hyperdrive
-            # Proper fix here is to switch `list` to `Sequence`
-            pool_filter_arg = self.chain._deployed_hyperdrive_pools  # type: ignore # pylint: disable=protected-access
+            pool_filter_arg = self.chain._hyperdrive_pools  # pylint: disable=protected-access
 
         return self._get_positions(
             pool_filter=pool_filter_arg,

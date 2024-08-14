@@ -209,6 +209,9 @@ class Chain:
 
         self.config = config
 
+        # List of hyperdrive pools we're keeping track of.
+        self._hyperdrive_pools: list[Hyperdrive] = []
+
         # Registers the cleanup function to run when the python script exist.
         # NOTE this isn't guaranteed to run (e.g., in notebook and vscode debugging environment)
         # so still best practice to manually call cleanup at the end of scripts.

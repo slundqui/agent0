@@ -184,7 +184,6 @@ class LocalChain(Chain):
 
         self._saved_snapshot_id: str
         self._has_saved_snapshot = False
-        self._deployed_hyperdrive_pools: list[LocalHyperdrive] = []
         self._chain_agents: list[LocalHyperdriveAgent] = []
 
         # Ensure snapshot dir exists
@@ -326,27 +325,34 @@ class LocalChain(Chain):
         else:
             time_delta = int(time_delta)  # convert int-like (e.g. np.int64) types to int
 
-        out_dict: dict[LocalHyperdrive, list[CreateCheckpoint]] = {pool: [] for pool in self._deployed_hyperdrive_pools}
+        # Type checking, we can only advance time on LocalHyperdrive objects
+        out_dict: dict[LocalHyperdrive, list[CreateCheckpoint]] = {}
+        for pool in self._hyperdrive_pools:
+            if not isinstance(pool, LocalHyperdrive):
+                raise TypeError("All pools must be of type LocalHyperdrive to advance time.")
+            out_dict[pool] = []
 
         # Don't checkpoint when advancing time if `create_checkpoints` is false
         # or there are no deployed pools
-        if (not create_checkpoints) or (len(self._deployed_hyperdrive_pools) == 0):
+        if (not create_checkpoints) or (len(self._hyperdrive_pools) == 0):
             self._advance_chain_time(time_delta)
-            for pool in self._deployed_hyperdrive_pools:
+            # Type narrowing
+            for pool in self._hyperdrive_pools:
+                assert isinstance(pool, LocalHyperdrive)
                 pool._maybe_run_blocking_data_pipeline()  # pylint: disable=protected-access
         else:
             # For every pool, check the checkpoint duration and advance the chain for that amount of time,
             # followed by creating a checkpoint for that pool.
             # TODO support multiple pools with different checkpoint durations
-            checkpoint_durations = [
-                pool.interface.pool_config.checkpoint_duration for pool in self._deployed_hyperdrive_pools
-            ]
+            checkpoint_durations = [pool.interface.pool_config.checkpoint_duration for pool in self._hyperdrive_pools]
             if not all(checkpoint_durations[0] == x for x in checkpoint_durations):
                 raise NotImplementedError("All pools on this chain must have the same checkpoint duration")
             checkpoint_duration = checkpoint_durations[0]
 
             # Handle the first checkpoint, if it hasn't been created, make the checkpoint
-            for pool in self._deployed_hyperdrive_pools:
+            for pool in self._hyperdrive_pools:
+                # Type narrowing
+                assert isinstance(pool, LocalHyperdrive)
                 # Create checkpoint handles making a checkpoint at the right time
                 checkpoint_event = pool._create_checkpoint(  # pylint: disable=protected-access
                     check_if_exists=True,
@@ -372,7 +378,9 @@ class LocalChain(Chain):
                 # long the checkpoint took to create (typically a second).
                 time_before_checkpoints = self._web3.eth.get_block("latest").get("timestamp")
                 assert time_before_checkpoints is not None
-                for pool in self._deployed_hyperdrive_pools:
+                for pool in self._hyperdrive_pools:
+                    # Type narrowing
+                    assert isinstance(pool, LocalHyperdrive)
                     checkpoint_event = pool._create_checkpoint(
                         gas_limit=self.config.gas_limit,
                         retries=self.config.advance_time_create_checkpoint_retry_count,
@@ -391,7 +399,8 @@ class LocalChain(Chain):
                 self._advance_chain_time(last_advance_time - offset)
 
             curr_block = self._web3.eth.get_block_number()
-            for pool in self._deployed_hyperdrive_pools:
+            for pool in self._hyperdrive_pools:
+                assert isinstance(pool, LocalHyperdrive)
                 pool._maybe_run_blocking_data_pipeline(curr_block)  # pylint: disable=protected-access
 
         return out_dict
@@ -509,7 +518,9 @@ class LocalChain(Chain):
         self._load_agent_bookkeeping(self._snapshot_dir)
 
         # The hyperdrive interface in deployed pools need to wipe their cache
-        for pool in self._deployed_hyperdrive_pools:
+        for pool in self._hyperdrive_pools:
+            # Type narrowing
+            assert isinstance(pool, LocalHyperdrive)
             pool._reinit_state_after_load_snapshot()  # pylint: disable=protected-access
 
         # This loads the agent's active policy
@@ -527,7 +538,7 @@ class LocalChain(Chain):
         self._saved_snapshot_id = response["result"]
 
     def _add_deployed_pool_to_bookkeeping(self, pool: LocalHyperdrive):
-        self._deployed_hyperdrive_pools.append(pool)
+        self._hyperdrive_pools.append(pool)
 
     def _dump_db(self, save_dir: Path):
         # TODO parameterize the save path
@@ -542,7 +553,7 @@ class LocalChain(Chain):
         # Save bookkeeping of deployed pools
         # We save the addresses of deployed pools for loading
         pool_filename = save_dir / "pools.pkl"
-        pool_addr_list = [pool.hyperdrive_address for pool in self._deployed_hyperdrive_pools]
+        pool_addr_list = [pool.hyperdrive_address for pool in self._hyperdrive_pools]
         with open(pool_filename, "wb") as file:
             dill.dump(pool_addr_list, file, dill.HIGHEST_PROTOCOL)
 
@@ -553,9 +564,7 @@ class LocalChain(Chain):
 
         # Given the current list of deployed hyperdrive pools, we throw away any pools deployed
         # after the snapshot
-        self._deployed_hyperdrive_pools = [
-            p for p in self._deployed_hyperdrive_pools if p.hyperdrive_address in hyperdrive_pools
-        ]
+        self._hyperdrive_pools = [p for p in self._hyperdrive_pools if p.hyperdrive_address in hyperdrive_pools]
 
     def _save_agent_bookkeeping(self, save_dir: Path) -> None:
         policy_file = save_dir / "agents.pkl"
@@ -594,7 +603,7 @@ class LocalChain(Chain):
                     hyperdrive_address = dill.load(file)
                     # Find the pool in the list of deployed pools
                     target_pool = None
-                    for pool in self._deployed_hyperdrive_pools:
+                    for pool in self._hyperdrive_pools:
                         if pool.hyperdrive_address == hyperdrive_address:
                             target_pool = pool
                             break

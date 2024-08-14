@@ -1323,18 +1323,18 @@ def test_policy_config_none_rng(fast_chain_fixture: LocalChain):
 @pytest.mark.anvil
 def test_pool_creation_after_snapshot(chain_fixture: LocalChain):
     # pylint: disable=protected-access
-    assert len(chain_fixture._deployed_hyperdrive_pools) == 0
+    assert len(chain_fixture._hyperdrive_pools) == 0
     chain_fixture.save_snapshot()
     _ = LocalHyperdrive(chain_fixture)
-    assert len(chain_fixture._deployed_hyperdrive_pools) == 1
+    assert len(chain_fixture._hyperdrive_pools) == 1
     chain_fixture.load_snapshot()
-    assert len(chain_fixture._deployed_hyperdrive_pools) == 0
+    assert len(chain_fixture._hyperdrive_pools) == 0
     _ = LocalHyperdrive(chain_fixture)
     chain_fixture.save_snapshot()
     _ = LocalHyperdrive(chain_fixture)
-    assert len(chain_fixture._deployed_hyperdrive_pools) == 2
+    assert len(chain_fixture._hyperdrive_pools) == 2
     chain_fixture.load_snapshot()
-    assert len(chain_fixture._deployed_hyperdrive_pools) == 1
+    assert len(chain_fixture._hyperdrive_pools) == 1
 
 
 # Since we use snapshots in test fixtures, we can't use the fixture here
