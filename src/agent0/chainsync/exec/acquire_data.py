@@ -166,6 +166,7 @@ def acquire_data(
                     continue
                 data_chain_to_db(interfaces, block_number, db_session)
         else:
+            logging.info("Acquire data getting block %s", latest_mined_block)
             data_chain_to_db(interfaces, latest_mined_block, db_session)
 
         curr_write_block = latest_mined_block + 1

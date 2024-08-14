@@ -606,11 +606,3 @@ class LocalHyperdriveAgent(HyperdriveAgent):
         return self._get_trade_events(
             pool_filter=pool_filter, all_token_deltas=all_token_deltas, coerce_float=coerce_float
         )
-
-    def _sync_events(self, pool: Hyperdrive | list[Hyperdrive]) -> None:
-        # No need to sync in local hyperdrive, we sync when we run the data pipeline
-        pass
-
-    def _sync_snapshot(self, pool: Hyperdrive | list[Hyperdrive]) -> None:
-        # No need to sync in local hyperdrive, we sync when we run the data pipeline
-        pass

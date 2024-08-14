@@ -888,7 +888,7 @@ class HyperdriveAgent:
         if pool is None:
             raise ValueError("Getting wallet object requires an active pool.")
 
-        self._sync_events(pool)
+        self.chain.wait_for_data_pipeline()
         hyperdrive_address = pool.interface.hyperdrive_address
 
         # Query current positions from the events table
@@ -1032,9 +1032,6 @@ class HyperdriveAgent:
         if pool_filter is None:
             raise ValueError("Pool filter or registry address must be specified to get positions.")
 
-        # Sync all events, then sync snapshots for pnl and value calculation
-        self._sync_events(pool_filter)
-        self._sync_snapshot(pool_filter)
         return self._get_positions(
             pool_filter=pool_filter,
             show_closed_positions=show_closed_positions,
@@ -1049,6 +1046,9 @@ class HyperdriveAgent:
         calc_pnl: bool,
         coerce_float: bool,
     ) -> pd.DataFrame:
+
+        self.chain.wait_for_data_pipeline()
+
         # Query the snapshot for the most recent positions.
         if isinstance(pool_filter, list):
             hyperdrive_address = [str(pool.hyperdrive_address) for pool in pool_filter]
@@ -1123,7 +1123,7 @@ class HyperdriveAgent:
             # TODO get positions on remote chains must pass in pool for now
             # Eventually we get the list of pools from registry and track all pools in registry
             raise NotImplementedError("Pool must be specified to get trade events.")
-        self._sync_events(pool_filter)
+
         return self._get_trade_events(
             all_token_deltas=all_token_deltas, pool_filter=pool_filter, coerce_float=coerce_float
         )
@@ -1136,6 +1136,7 @@ class HyperdriveAgent:
     ) -> pd.DataFrame:
         """We call this function in both remote and local agents, as the remote call needs to
         do argument checking."""
+        self.chain.wait_for_data_pipeline()
         # If pool is None, we don't filter on hyperdrive address
         if pool_filter is None:
             hyperdrive_address = None
@@ -1156,41 +1157,3 @@ class HyperdriveAgent:
         trade_events = self.chain._add_username_to_dataframe(trade_events, "wallet_address")
         trade_events = self.chain._add_hyperdrive_name_to_dataframe(trade_events, "hyperdrive_address")
         return trade_events
-
-    # Helper functions for analysis
-
-    def _sync_events(self, pool: Hyperdrive | list[Hyperdrive]) -> None:
-        # Update the db with this wallet
-        # Note that remote hyperdrive only updates the wallet wrt the agent itself.
-        # TODO this function can be optimized to cache.
-
-        # NOTE the way we sync the events table is by either looking at (1) the latest
-        # entry wrt a wallet in the events table, or (2) the latest entry overall in the events
-        # table, based on if we're updating the table with all wallets or just a single wallet.
-        interfaces: list[HyperdriveReadInterface]
-        if isinstance(pool, list):
-            interfaces = [p.interface for p in pool]
-        else:
-            interfaces = [pool.interface]
-
-        # Remote hyperdrive stack syncs only the agent's wallet
-        trade_events_to_db(interfaces, wallet_addr=self.address, db_session=self.chain.db_session)
-        # We sync checkpoint events as well
-        checkpoint_events_to_db(interfaces, db_session=self.chain.db_session)
-
-    def _sync_snapshot(self, pool: Hyperdrive | list[Hyperdrive]) -> None:
-        # Update the db with a snapshot of the wallet
-
-        interfaces: list[HyperdriveReadInterface]
-        if isinstance(pool, list):
-            interfaces = [p.interface for p in pool]
-        else:
-            interfaces = [pool.interface]
-
-        # Note that remote hyperdrive only updates snapshots wrt the agent itself.
-        snapshot_positions_to_db(
-            interfaces,
-            wallet_addr=self.address,
-            db_session=self.chain.db_session,
-            calc_pnl=self.chain.config.calc_pnl,
-        )

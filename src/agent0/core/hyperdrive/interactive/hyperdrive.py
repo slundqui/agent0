@@ -9,12 +9,15 @@ import nest_asyncio
 import pandas as pd
 from eth_typing import ChecksumAddress
 
+from agent0.chainsync.analysis import fill_pnl_values
 from agent0.chainsync.db.hyperdrive import (
     add_hyperdrive_addr_to_name,
-    checkpoint_events_to_db,
-    get_latest_block_number_from_trade_event,
+    get_checkpoint_info,
+    get_pool_config,
+    get_pool_info,
+    get_position_snapshot,
+    get_total_pnl_over_time,
     get_trade_events,
-    trade_events_to_db,
 )
 from agent0.ethpy.hyperdrive import (
     HyperdriveReadWriteInterface,
@@ -171,35 +174,122 @@ class Hyperdrive:
 
         self._initialize(chain, hyperdrive_address, name)
 
-    def get_positions(
-        self, show_closed_positions: bool = False, calc_pnl: bool = False, coerce_float: bool = False
-    ) -> pd.DataFrame:
-        """Gets all current positions of this pool and their corresponding pnl
-        and returns as a pandas dataframe.
+    ### Database methods
+    # These methods expose the underlying chainsync getter methods with minimal processing
+    # TODO expand in docstrings the columns of the output dataframe
 
-        This function is not implemented for remote hyperdrive, as gathering this data
-        is expensive. In the future, we can explicitly make this call gather data from
-        the remote chain.
+    def get_pool_config(self, coerce_float: bool = False) -> pd.Series:
+        """Get the pool config and returns as a pandas series.
 
         Arguments
         ---------
         coerce_float: bool
             If True, will coerce underlying Decimals to floats.
+
+        Returns
+        -------
+        pd.Series
+            A pandas series that consists of the deployed pool config.
+        """
+        # Underlying function returns a dataframe, but this is assuming there's a single
+        # pool config for this object.
+        pool_config = get_pool_config(self.chain.db_session, coerce_float=coerce_float)
+        if len(pool_config) == 0:
+            raise ValueError("Pool config doesn't exist in the db.")
+        return pool_config.iloc[0]
+
+    def get_pool_info(self, coerce_float: bool = False) -> pd.DataFrame:
+        """Get the pool info (and additional info) per block and returns as a pandas dataframe.
+
+        Arguments
+        ---------
+        coerce_float: bool
+            If True, will coerce underlying Decimals to floats.
+
+        Returns
+        -------
+        pd.Dataframe
+            A pandas dataframe that consists of the pool info per block.
+        """
+        self.chain.wait_for_data_pipeline()
+        pool_info = get_pool_info(self.chain.db_session, coerce_float=coerce_float).drop("id", axis=1)
+        return pool_info
+
+    def get_checkpoint_info(self, coerce_float: bool = False) -> pd.DataFrame:
+        """Get the previous checkpoint infos per block and returns as a pandas dataframe.
+
+        Arguments
+        ---------
+        coerce_float: bool
+            If True, will coerce underlying Decimals to floats.
+
+        Returns
+        -------
+        pd.Dataframe
+            A pandas dataframe that consists of previous checkpoints made on this pool.
+        """
+        self.chain.wait_for_data_pipeline()
+        return get_checkpoint_info(
+            self.chain.db_session, hyperdrive_address=self.hyperdrive_address, coerce_float=coerce_float
+        )
+
+    def get_positions(
+        self,
+        show_closed_positions: bool = False,
+        calc_pnl: bool = False,
+        coerce_float: bool = False,
+    ) -> pd.DataFrame:
+        """Gets all current positions of this pool and their corresponding pnl
+        and returns as a pandas dataframe.
+
+        This function only exists in local hyperdrive as only sim pool keeps track
+        of all positions of all wallets.
+
+        Arguments
+        ---------
+        show_closed_positions: bool, optional
+            Whether to show positions closed positions (i.e., positions with zero balance). Defaults to False.
+            When False, will only return currently open positions. Useful for gathering currently open positions.
+            When True, will also return any closed positions. Useful for calculating overall pnl of all positions.
+            Defaults to False.
         calc_pnl: bool, optional
             If the chain config's `calc_pnl` flag is False, passing in `calc_pnl=True` to this function allows for
             a one-off pnl calculation for the current positions. Ignored if the chain's `calc_pnl` flag is set to True,
             as every position snapshot will return pnl information.
-        show_closed_positions: bool
-            Whether to show positions closed positions (i.e., positions with zero balance). Defaults to False.
-            When False, will only return currently open positions. Useful for gathering currently open positions.
-            When True, will also return any closed positions. Useful for calculating overall pnl of all positions.
+        coerce_float: bool
+            If True, will coerce underlying Decimals to floats.
+            Defaults to False.
 
         Returns
         -------
         pd.Dataframe
             A dataframe consisting of currently open positions and their corresponding pnl.
         """
-        raise NotImplementedError
+        self.chain.wait_for_data_pipeline()
+        position_snapshot = get_position_snapshot(
+            self.chain.db_session,
+            hyperdrive_address=self.interface.hyperdrive_address,
+            latest_entry=True,
+            coerce_float=coerce_float,
+        ).drop("id", axis=1)
+        if not show_closed_positions:
+            position_snapshot = position_snapshot[position_snapshot["token_balance"] != 0].reset_index(drop=True)
+
+        # If the config's calc_pnl is not set, but we pass in `calc_pnl = True` to this function,
+        # we do a one off calculation to get the pnl here.
+        if not self.chain.config.calc_pnl and calc_pnl:
+            position_snapshot = fill_pnl_values(
+                position_snapshot,
+                self.chain.db_session,
+                self.interface,
+                coerce_float=coerce_float,
+            )
+
+        # Add usernames
+        position_snapshot = self.chain._add_username_to_dataframe(position_snapshot, "wallet_address")
+        # Add logical name for pool
+        position_snapshot = self.chain._add_hyperdrive_name_to_dataframe(position_snapshot, "hyperdrive_address")
+        return position_snapshot
 
     def get_trade_events(self, all_token_deltas: bool = False, coerce_float: bool = False) -> pd.DataFrame:
         """Gets the ticker history of all trades and the corresponding token deltas for each trade.
@@ -226,22 +316,7 @@ class Hyperdrive:
         """
         # pylint: disable=protected-access
 
-        # There's a case where a user calls `agent.get_trade_events()` followed by
-        # `pool.get_trade_events()`. This puts duplicate entries into the same underlying
-        # table.
-        # We prevent this by not allowing this call if the underlying table isn't empty
-        # TODO we can relax this by either dropping any entries from this pool, or by making
-        # a db update on a unique constraint.
-
-        if (
-            get_latest_block_number_from_trade_event(
-                self.chain.db_session, hyperdrive_address=self.hyperdrive_address, wallet_address=None
-            )
-            != 0
-        ):
-            raise NotImplementedError("Can't call `hyperdrive.get_trade_events` after `agent.get_trade_events()`.")
-
-        self._sync_events()
+        self.chain.wait_for_data_pipeline()
         out = get_trade_events(
             self.chain.db_session,
             hyperdrive_address=self.interface.hyperdrive_address,
@@ -270,7 +345,15 @@ class Hyperdrive:
         pd.Dataframe
             A dataframe consisting of positions over time and their corresponding pnl.
         """
-        raise NotImplementedError
+        self.chain.wait_for_data_pipeline()
+        # TODO add logical name for pool
+        position_snapshot = get_position_snapshot(
+            self.chain.db_session, hyperdrive_address=self.interface.hyperdrive_address, coerce_float=coerce_float
+        ).drop("id", axis=1)
+        # Add usernames
+        position_snapshot = self.chain._add_username_to_dataframe(position_snapshot, "wallet_address")
+        position_snapshot = self.chain._add_hyperdrive_name_to_dataframe(position_snapshot, "hyperdrive_address")
+        return position_snapshot
 
     def get_historical_pnl(self, coerce_float: bool = False) -> pd.DataFrame:
         """Gets total pnl for each wallet for each block, aggregated across all open positions.
@@ -289,7 +372,9 @@ class Hyperdrive:
         pd.Dataframe
             A dataframe of aggregated wallet pnl per block
         """
-        raise NotImplementedError
+        out = get_total_pnl_over_time(self.chain.db_session, coerce_float=coerce_float)
+        out = self.chain._add_username_to_dataframe(out, "wallet_address")
+        return out
 
     @property
     def hyperdrive_address(self) -> ChecksumAddress:
@@ -303,7 +388,7 @@ class Hyperdrive:
         # pylint: disable=protected-access
         return self.interface.hyperdrive_address
 
-    def _sync_events(self) -> None:
-        trade_events_to_db([self.interface], wallet_addr=None, db_session=self.chain.db_session)
-        # We sync checkpoint events as well
-        checkpoint_events_to_db([self.interface], db_session=self.chain.db_session)
+    # def _sync_events(self) -> None:
+    #     trade_events_to_db([self.interface], wallet_addr=None, db_session=self.chain.db_session)
+    #     # We sync checkpoint events as well
+    #     checkpoint_events_to_db([self.interface], db_session=self.chain.db_session)
