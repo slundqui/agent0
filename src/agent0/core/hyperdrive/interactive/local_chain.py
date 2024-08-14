@@ -537,9 +537,6 @@ class LocalChain(Chain):
             raise KeyError("Response did not have a result.")
         self._saved_snapshot_id = response["result"]
 
-    def _add_deployed_pool_to_bookkeeping(self, pool: LocalHyperdrive):
-        self._hyperdrive_pools.append(pool)
-
     def _dump_db(self, save_dir: Path):
         # TODO parameterize the save path
         os.makedirs(save_dir, exist_ok=True)

@@ -20,7 +20,6 @@ from agent0.chainsync.db.hyperdrive import (
     get_total_pnl_over_time,
     get_trade_events,
 )
-from agent0.chainsync.exec import acquire_data, analyze_data
 from agent0.ethpy.hyperdrive import (
     DeployedHyperdriveFactory,
     DeployedHyperdrivePool,
@@ -397,23 +396,24 @@ class LocalHyperdrive(Hyperdrive):
         else:
             backfill = self.chain.config.backfill_pool_info
 
-        acquire_data(
-            start_block=data_start_block,
-            interfaces=[self.interface],
-            db_session=self.chain.db_session,
-            exit_on_catch_up=True,
-            suppress_logs=True,
-            progress_bar=progress_bar,
-            backfill=backfill,
-        )
-        analyze_data(
-            start_block=analysis_start_block,
-            interfaces=[self.interface],
-            db_session=self.chain.db_session,
-            exit_on_catch_up=True,
-            suppress_logs=True,
-            calc_pnl=self.calc_pnl,
-        )
+        # FIXME
+        # acquire_data(
+        #     start_block=data_start_block,
+        #     interfaces=[self.interface],
+        #     db_session=self.chain.db_session,
+        #     exit_on_catch_up=True,
+        #     suppress_logs=True,
+        #     progress_bar=progress_bar,
+        #     backfill=backfill,
+        # )
+        # analyze_data(
+        #     start_block=analysis_start_block,
+        #     interfaces=[self.interface],
+        #     db_session=self.chain.db_session,
+        #     exit_on_catch_up=True,
+        #     suppress_logs=True,
+        #     calc_pnl=self.calc_pnl,
+        # )
 
     def _maybe_run_blocking_data_pipeline(self, start_block: int | None = None, progress_bar: bool = False) -> None:
         # Checks the chain config to see if manual sync is on. Noop if it is.

@@ -6,6 +6,7 @@ import atexit
 import logging
 import os
 from dataclasses import asdict, dataclass
+from multiprocessing import Process
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Type
 
@@ -22,6 +23,7 @@ from agent0.chainsync import PostgresConfig
 from agent0.chainsync.dashboard.usernames import build_user_mapping
 from agent0.chainsync.db.base import get_addr_to_username, initialize_session
 from agent0.chainsync.db.hyperdrive import get_hyperdrive_addr_to_name
+from agent0.chainsync.exec import acquire_data, analyze_data
 from agent0.chainsync.postgres_config import build_postgres_config_from_env
 from agent0.core.hyperdrive.policies import HyperdriveBasePolicy
 from agent0.ethpy.base import initialize_web3_with_http_provider
@@ -203,6 +205,11 @@ class Chain:
             )
             assert isinstance(self.postgres_container, Container)
 
+        # Run data pipeline in subprocess
+        # This process will get ran once hyperdrive pools get registered
+        self._acquire_data_process: Process | None = None
+        self._analyze_data_process: Process | None = None
+
         # Update the database field to use a unique name for this pool using the hyperdrive contract address
         self.db_session = initialize_session(self.postgres_config, ensure_database_created=True)
         self._db_name = self.postgres_config.POSTGRES_DB
@@ -216,6 +223,52 @@ class Chain:
         # NOTE this isn't guaranteed to run (e.g., in notebook and vscode debugging environment)
         # so still best practice to manually call cleanup at the end of scripts.
         atexit.register(self.cleanup)
+
+    def stop_data_pipeline(self):
+        if self._acquire_data_process is not None:
+            self._acquire_data_process.terminate()
+            self._acquire_data_process.join()
+            self._acquire_data_process.close()
+            self._acquire_data_process = None
+
+        if self._analyze_data_process is not None:
+            self._analyze_data_process.terminate()
+            self._analyze_data_process.join()
+            self._analyze_data_process.close()
+            self._analyze_data_process = None
+
+    def start_data_pipeline(self):
+        # TODO figure out backfilling data when connecting to an existing pool
+        data_start_block = 0
+        # We redefine the process argument in case `self._hyperdrive_pools` has changed
+        self._acquire_data_process = Process(
+            target=acquire_data,
+            kwargs={
+                "start_block": data_start_block,
+                "rpc_uri": self.rpc_uri,
+                "hyperdrive_addresses": [p.hyperdrive_address for p in self._hyperdrive_pools],
+                "postgres_config": self.postgres_config,
+                "backfill": False,
+            },
+        )
+        self._analyze_data_process = Process(
+            target=analyze_data,
+            kwargs={
+                "start_block": data_start_block,
+                "rpc_uri": self.rpc_uri,
+                "hyperdrive_addresses": [p.hyperdrive_address for p in self._hyperdrive_pools],
+                "postgres_config": self.postgres_config,
+                "calc_pnl": self.config.calc_pnl,
+            },
+        )
+        self._acquire_data_process.start()
+        self._analyze_data_process.start()
+
+    def _add_deployed_pool_to_bookkeeping(self, pool: Hyperdrive):
+        # Stop and restart data pipelines when adding pools to bookkeeping
+        self.stop_data_pipeline()
+        self._hyperdrive_pools.append(pool)
+        self.start_data_pipeline()
 
     # Allow this to be used as a context manager
     def __enter__(self):
@@ -300,6 +353,8 @@ class Chain:
             atexit.unregister(self.cleanup)
         except Exception:  # pylint: disable=broad-except
             pass
+
+        self.stop_data_pipeline()
 
         db_engine = None
         if self.db_session is not None:
