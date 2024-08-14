@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from agent0.chainsync import PostgresConfig
 from agent0.chainsync.analysis import db_to_analysis
 from agent0.chainsync.db.base import initialize_session
-from agent0.chainsync.db.hyperdrive import PoolInfo, finalize_block, get_latest_block_number_from_table
+from agent0.chainsync.db.hyperdrive import PoolInfo, analysis_finalize_block, get_latest_block_number_from_table
 from agent0.ethpy.hyperdrive import HyperdriveReadInterface
 
 _SLEEP_AMOUNT = 1
@@ -110,7 +110,7 @@ def analyze_data(
         # Each table handles keeping track of appending to tables
         db_to_analysis(db_session, interfaces, calc_pnl)
         # Finalize the block
-        finalize_block(db_session)
+        analysis_finalize_block(db_session)
         curr_start_write_block = latest_data_block_number + 1
 
     # Clean up resources on clean exit

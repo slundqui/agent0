@@ -16,6 +16,7 @@ from agent0.chainsync.db.hyperdrive import (
     add_hyperdrive_addr_to_name,
     data_chain_to_db,
     get_latest_block_number_from_pool_info_table,
+    ingestion_finalize_block,
     init_data_chain_to_db,
 )
 from agent0.ethpy.hyperdrive import HyperdriveReadInterface
@@ -168,6 +169,8 @@ def acquire_data(
         else:
             logging.info("Acquire data getting block %s", latest_mined_block)
             data_chain_to_db(interfaces, latest_mined_block, db_session)
+
+        ingestion_finalize_block(db_session)
 
         curr_write_block = latest_mined_block + 1
 

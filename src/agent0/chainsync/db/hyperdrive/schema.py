@@ -206,6 +206,16 @@ class TradeEvent(Base):
     """
 
 
+class IngestionFinalizeBlock(Base):
+    """A table that holds the block number of when the block was finalized in the db wrt analysis."""
+
+    __tablename__ = "ingestion_finalize_block"
+
+    # Indices
+    block_number: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    """The block number of when the block was finalized in the db."""
+
+
 ## Analysis schemas
 
 
@@ -267,10 +277,10 @@ class PositionSnapshot(Base):
     """
 
 
-class FinalizeBlock(Base):
-    """A table that holds the block number of when the block was finalized in the db."""
+class AnalysisFinalizeBlock(Base):
+    """A table that holds the block number of when the block was finalized in the db wrt analysis."""
 
-    __tablename__ = "finalize_block"
+    __tablename__ = "analysis_finalize_block"
 
     # Indices
     block_number: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)

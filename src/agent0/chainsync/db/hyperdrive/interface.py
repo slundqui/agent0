@@ -12,9 +12,10 @@ from agent0.chainsync.db.base import get_latest_block_number_from_table
 
 from .schema import (
     FIXED_NUMERIC,
+    AnalysisFinalizeBlock,
     CheckpointInfo,
-    FinalizeBlock,
     HyperdriveAddrToName,
+    IngestionFinalizeBlock,
     PoolConfig,
     PoolInfo,
     PositionSnapshot,
@@ -863,7 +864,47 @@ def get_realized_value_over_time(
 
 
 # Finalizing blocks
-def finalize_block(session: Session) -> None:
+def ingestion_finalize_block(session: Session) -> None:
+    """Finalizes the latest entry in data ingestion.
+
+    Arguments
+    ---------
+    session: Session
+        The initialized session object.
+    """
+
+    block_number = get_latest_block_number_from_pool_info_table(session)
+    session.add(IngestionFinalizeBlock(block_number=block_number))
+    try:
+        session.commit()
+    except exc.DataError as err:
+        session.rollback()
+        logging.error("Error adding ingestion finalize block: %s", err)
+        raise err
+
+
+def get_latest_ingestion_finalized_block_number(session: Session) -> int:
+    """Gets the latest ingestion finalized block number in the db.
+
+    Arguments
+    ---------
+    session: Session
+        The initialized session object.
+
+    Returns
+    -------
+    int
+        The latest finalized block number in the db.
+    """
+    query = session.query(func.max(IngestionFinalizeBlock.block_number))
+    query = query.scalar()
+
+    if query is None:
+        return 0
+    return int(query)
+
+
+def analysis_finalize_block(session: Session) -> None:
     """Finalizes the latest entry in the position snapshot table.
 
     Arguments
@@ -875,16 +916,16 @@ def finalize_block(session: Session) -> None:
     block_number = get_latest_block_number_from_positions_snapshot_table(
         session, wallet_addr=None, hyperdrive_address=None
     )
-    session.add(FinalizeBlock(block_number=block_number))
+    session.add(AnalysisFinalizeBlock(block_number=block_number))
     try:
         session.commit()
     except exc.DataError as err:
         session.rollback()
-        logging.error("Error adding finalize block: %s", err)
+        logging.error("Error adding analysis finalize block: %s", err)
         raise err
 
 
-def get_latest_finalized_block_number(session: Session) -> int:
+def get_latest_analysis_finalized_block_number(session: Session) -> int:
     """Gets the latest finalized block number in the db.
 
     Arguments
@@ -897,7 +938,7 @@ def get_latest_finalized_block_number(session: Session) -> int:
     int
         The latest finalized block number in the db.
     """
-    query = session.query(func.max(FinalizeBlock.block_number))
+    query = session.query(func.max(AnalysisFinalizeBlock.block_number))
     query = query.scalar()
 
     if query is None:

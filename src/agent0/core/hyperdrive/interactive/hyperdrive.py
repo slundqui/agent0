@@ -211,7 +211,7 @@ class Hyperdrive:
         pd.Dataframe
             A pandas dataframe that consists of the pool info per block.
         """
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_ingestion_pipeline()
         pool_info = get_pool_info(self.chain.db_session, coerce_float=coerce_float).drop("id", axis=1)
         return pool_info
 
@@ -228,7 +228,7 @@ class Hyperdrive:
         pd.Dataframe
             A pandas dataframe that consists of previous checkpoints made on this pool.
         """
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_ingestion_pipeline()
         return get_checkpoint_info(
             self.chain.db_session, hyperdrive_address=self.hyperdrive_address, coerce_float=coerce_float
         )
@@ -265,7 +265,7 @@ class Hyperdrive:
         pd.Dataframe
             A dataframe consisting of currently open positions and their corresponding pnl.
         """
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_analysis_pipeline()
         position_snapshot = get_position_snapshot(
             self.chain.db_session,
             hyperdrive_address=self.interface.hyperdrive_address,
@@ -316,7 +316,7 @@ class Hyperdrive:
         """
         # pylint: disable=protected-access
 
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_ingestion_pipeline()
         out = get_trade_events(
             self.chain.db_session,
             hyperdrive_address=self.interface.hyperdrive_address,
@@ -345,7 +345,7 @@ class Hyperdrive:
         pd.Dataframe
             A dataframe consisting of positions over time and their corresponding pnl.
         """
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_analysis_pipeline()
         # TODO add logical name for pool
         position_snapshot = get_position_snapshot(
             self.chain.db_session, hyperdrive_address=self.interface.hyperdrive_address, coerce_float=coerce_float
@@ -387,8 +387,3 @@ class Hyperdrive:
         """
         # pylint: disable=protected-access
         return self.interface.hyperdrive_address
-
-    # def _sync_events(self) -> None:
-    #     trade_events_to_db([self.interface], wallet_addr=None, db_session=self.chain.db_session)
-    #     # We sync checkpoint events as well
-    #     checkpoint_events_to_db([self.interface], db_session=self.chain.db_session)

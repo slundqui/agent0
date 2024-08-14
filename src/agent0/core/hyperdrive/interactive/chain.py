@@ -23,7 +23,11 @@ from web3.types import BlockData, BlockIdentifier, Timestamp
 from agent0.chainsync import PostgresConfig
 from agent0.chainsync.dashboard.usernames import build_user_mapping
 from agent0.chainsync.db.base import get_addr_to_username, initialize_session
-from agent0.chainsync.db.hyperdrive import get_hyperdrive_addr_to_name, get_latest_finalized_block_number
+from agent0.chainsync.db.hyperdrive import (
+    get_hyperdrive_addr_to_name,
+    get_latest_analysis_finalized_block_number,
+    get_latest_ingestion_finalized_block_number,
+)
 from agent0.chainsync.exec import acquire_data, analyze_data
 from agent0.chainsync.postgres_config import build_postgres_config_from_env
 from agent0.core.hyperdrive.policies import HyperdriveBasePolicy
@@ -265,12 +269,19 @@ class Chain:
         self._acquire_data_process.start()
         self._analyze_data_process.start()
 
-    def wait_for_data_pipeline(self):
+    def wait_for_analysis_pipeline(self):
         curr_block_number = self.block_number()
 
         # We wait for the db to catch up
-        while curr_block_number > get_latest_finalized_block_number(self.db_session):
-            time.sleep(1)
+        while curr_block_number > get_latest_analysis_finalized_block_number(self.db_session):
+            time.sleep(0.1)
+
+    def wait_for_ingestion_pipeline(self):
+        curr_block_number = self.block_number()
+
+        # We wait for the db to catch up
+        while curr_block_number > get_latest_ingestion_finalized_block_number(self.db_session):
+            time.sleep(0.1)
 
     def _add_deployed_pool_to_bookkeeping(self, pool: Hyperdrive):
         # Stop and restart data pipelines when adding pools to bookkeeping

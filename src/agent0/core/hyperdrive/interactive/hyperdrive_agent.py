@@ -888,7 +888,7 @@ class HyperdriveAgent:
         if pool is None:
             raise ValueError("Getting wallet object requires an active pool.")
 
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_ingestion_pipeline()
         hyperdrive_address = pool.interface.hyperdrive_address
 
         # Query current positions from the events table
@@ -1047,7 +1047,7 @@ class HyperdriveAgent:
         coerce_float: bool,
     ) -> pd.DataFrame:
 
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_analysis_pipeline()
 
         # Query the snapshot for the most recent positions.
         if isinstance(pool_filter, list):
@@ -1136,7 +1136,7 @@ class HyperdriveAgent:
     ) -> pd.DataFrame:
         """We call this function in both remote and local agents, as the remote call needs to
         do argument checking."""
-        self.chain.wait_for_data_pipeline()
+        self.chain.wait_for_ingestion_pipeline()
         # If pool is None, we don't filter on hyperdrive address
         if pool_filter is None:
             hyperdrive_address = None
