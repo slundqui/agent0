@@ -270,6 +270,8 @@ class PositionSnapshot(Base):
 class FinalizeBlock(Base):
     """A table that holds the block number of when the block was finalized in the db."""
 
+    __tablename__ = "finalize_block"
+
     # Indices
     block_number: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     """The block number of when the block was finalized in the db."""
