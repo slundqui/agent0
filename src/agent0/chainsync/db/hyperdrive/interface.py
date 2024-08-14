@@ -13,6 +13,7 @@ from agent0.chainsync.db.base import get_latest_block_number_from_table
 from .schema import (
     FIXED_NUMERIC,
     CheckpointInfo,
+    FinalizeBlock,
     HyperdriveAddrToName,
     PoolConfig,
     PoolInfo,
@@ -859,3 +860,46 @@ def get_realized_value_over_time(
     query = query.order_by(PositionSnapshot.block_number)
 
     return pd.read_sql(query.statement, con=session.connection(), coerce_float=coerce_float)
+
+
+# Finalizing blocks
+def finalize_block(session: Session) -> None:
+    """Finalizes the latest entry in the position snapshot table.
+
+    Arguments
+    ---------
+    session: Session
+        The initialized session object.
+    """
+
+    block_number = get_latest_block_number_from_positions_snapshot_table(
+        session, wallet_addr=None, hyperdrive_address=None
+    )
+    session.add(FinalizeBlock(block_number=block_number))
+    try:
+        session.commit()
+    except exc.DataError as err:
+        session.rollback()
+        logging.error("Error adding finalize block: %s", err)
+        raise err
+
+
+def get_latest_finalized_block_number(session: Session) -> int:
+    """Gets the latest finalized block number in the db.
+
+    Arguments
+    ---------
+    session: Session
+        The initialized session object.
+
+    Returns
+    -------
+    int
+        The latest finalized block number in the db.
+    """
+    query = session.query(func.max(FinalizeBlock.block_number))
+    query = query.scalar()
+
+    if query is None:
+        return 0
+    return int(query)
