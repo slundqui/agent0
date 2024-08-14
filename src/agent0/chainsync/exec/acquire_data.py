@@ -151,7 +151,9 @@ def acquire_data(
                 block_number: BlockNumber = BlockNumber(block_int)
                 # Only print every 10 blocks
                 if not suppress_logs and (block_number % 10) == 0:
-                    logging.info("Block %s", block_number)
+                    logging.info("Acquire data getting block %s", block_number)
+                    # FIXME
+                    print("Acquire data getting block %s", block_number)
                 # Explicit check against loopback block limit
                 if (latest_mined_block - block_number) > lookback_block_limit:
                     # NOTE when this case happens, wallet information will no longer
@@ -168,6 +170,8 @@ def acquire_data(
                 data_chain_to_db(interfaces, block_number, db_session)
         else:
             logging.info("Acquire data getting block %s", latest_mined_block)
+            # FIXME
+            print("Acquire data getting block %s", latest_mined_block)
             data_chain_to_db(interfaces, latest_mined_block, db_session)
 
         ingestion_finalize_block(db_session)

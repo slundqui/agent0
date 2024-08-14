@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from agent0.chainsync import PostgresConfig
 from agent0.chainsync.analysis import db_to_analysis
 from agent0.chainsync.db.base import initialize_session
-from agent0.chainsync.db.hyperdrive import PoolInfo, analysis_finalize_block, get_latest_block_number_from_table
+from agent0.chainsync.db.hyperdrive import analysis_finalize_block, get_latest_ingestion_finalized_block_number
 from agent0.ethpy.hyperdrive import HyperdriveReadInterface
 
 _SLEEP_AMOUNT = 1
@@ -96,10 +96,9 @@ def analyze_data(
     if not suppress_logs:
         logging.info("Monitoring database for updates...")
     while True:
-        latest_data_block_number = get_latest_data_block(db_session)
-        logging.info("Analyze data getting block %s", latest_data_block_number)
+        latest_ingestion_block_number = get_latest_ingestion_finalized_block_number(db_session)
         # Only execute if we are on a new block
-        if latest_data_block_number < curr_start_write_block:
+        if latest_ingestion_block_number < curr_start_write_block:
             exit_callable = False
             if exit_callback_fn is not None:
                 exit_callable = exit_callback_fn()
@@ -107,35 +106,18 @@ def analyze_data(
                 break
             time.sleep(_SLEEP_AMOUNT)
             continue
+
+        logging.info("Analyze data getting block %s", latest_ingestion_block_number)
+        # FIXME
+        print("Analyze data getting block %s", latest_ingestion_block_number)
+
         # Each table handles keeping track of appending to tables
         db_to_analysis(db_session, interfaces, calc_pnl)
         # Finalize the block
         analysis_finalize_block(db_session)
-        curr_start_write_block = latest_data_block_number + 1
+        curr_start_write_block = latest_ingestion_block_number + 1
 
     # Clean up resources on clean exit
     # If this function made the db session, we close it here
     if db_session_init:
         db_session.close()
-
-
-def get_latest_data_block(db_session: Session) -> int:
-    """Gets the latest block the data pipeline has written
-    Since there are multiple tables that analysis reads from,
-    we query the latest block from all read tables and select the minimum
-    block from the list.
-
-    Arguments
-    ---------
-    db_session: Session
-        The initialized db session.
-
-    Returns
-    -------
-    int
-        The latest block number from the PoolInfo table.
-    """
-    # Note to avoid race condition, we add pool info as the last update for the block
-    latest_pool_info = get_latest_block_number_from_table(PoolInfo, db_session)
-
-    return latest_pool_info
