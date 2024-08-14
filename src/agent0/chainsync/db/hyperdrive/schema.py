@@ -211,8 +211,10 @@ class IngestionFinalizeBlock(Base):
 
     __tablename__ = "ingestion_finalize_block"
 
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, init=False, autoincrement=True)
+    """The unique identifier for the entry to the table."""
     # Indices
-    block_number: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    block_number: Mapped[int] = mapped_column(BigInteger, index=True)
     """The block number of when the block was finalized in the db."""
 
 
@@ -283,5 +285,7 @@ class AnalysisFinalizeBlock(Base):
     __tablename__ = "analysis_finalize_block"
 
     # Indices
-    block_number: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, init=False, autoincrement=True)
+    """The unique identifier for the entry to the table."""
+    block_number: Mapped[int] = mapped_column(BigInteger, index=True)
     """The block number of when the block was finalized in the db."""
