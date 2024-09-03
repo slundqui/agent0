@@ -13,7 +13,7 @@ from eth_account.signers.local import LocalAccount
 from eth_typing import ChecksumAddress
 from fixedpointmath import FixedPoint
 from hexbytes import HexBytes
-from hyperdrivetypes import ERC20Contract
+from hyperdrivetypes import IERC20Contract
 from web3 import Web3
 from web3.types import Nonce, RPCEndpoint
 
@@ -199,7 +199,7 @@ class HyperdriveAgent:
 
     def fund_from_whale(
         self,
-        token_contract: ERC20Contract,
+        token_contract: IERC20Contract,
         whale_address: str,
         amount: FixedPoint,
         fund_whale_with_eth: bool = False,
@@ -213,7 +213,7 @@ class HyperdriveAgent:
 
         Arguments
         ---------
-        token_contract: ERC20Contract
+        token_contract: IERC20Contract
             The contract of the token to transfer.
         whale_address: str
             The address of the whale to transfer from.
@@ -309,7 +309,7 @@ class HyperdriveAgent:
                     raise ValueError(f"Cannot use the hyperdrive pool itself as the whale for {pool.name}.")
 
                 self.fund_from_whale(
-                    ERC20Contract(base_token_contract.address),
+                    IERC20Contract(base_token_contract.address),
                     whale_account_addr,
                     base,
                     fund_whale_with_eth=True,
