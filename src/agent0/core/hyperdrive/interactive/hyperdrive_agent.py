@@ -13,6 +13,7 @@ from eth_account.signers.local import LocalAccount
 from eth_typing import ChecksumAddress
 from fixedpointmath import FixedPoint
 from hexbytes import HexBytes
+from hyperdrivetypes import ERC20Contract
 from web3 import Web3
 from web3.types import Nonce, RPCEndpoint
 
@@ -196,6 +197,51 @@ class HyperdriveAgent:
             return False
         return self._active_policy._done_trading
 
+    def fund_from_whale(
+        self,
+        token_contract: ERC20Contract,
+        whale_address: str,
+        amount: FixedPoint,
+        fund_whale_with_eth: bool = False,
+    ):
+        """Transfers tokens from a whale to this agent.
+
+        .. note:: This method calls `set_anvil_account_balance` for eth and
+        `mint` or account impersonation + transfers from whale accounts under the hood.
+        These functions are likely to fail on any non-test network, but we add them to the
+        interactive agent for convenience.
+
+        Arguments
+        ---------
+        token_contract: ERC20Contract
+            The contract of the token to transfer.
+        whale_address: str
+            The address of the whale to transfer from.
+        amount: FixedPoint
+            The amount of the token to transfer.
+        fund_whale_with_eth: bool, optional
+            Whether to fund ETH to the whale for gas. Defaults to False.
+        """
+        # Ensure whale has enough base to transfer
+        whale_balance = token_contract.functions.balanceOf(whale_address).call()
+        if whale_balance < amount.scaled_value:
+            raise ValueError(f"Whale does not have enough base to transfer. {whale_balance=}, {amount.scaled_value=}.")
+
+        # RPC anvil call to impersonate account
+        response = self.chain._web3.provider.make_request(
+            method=RPCEndpoint("anvil_impersonateAccount"), params=[whale_address]
+        )
+        # ensure response is valid
+        if "result" not in response:
+            raise KeyError("Response did not have a result.")
+
+        if fund_whale_with_eth:
+            # Give eth to the whale account for gas
+            _ = set_anvil_account_balance(self.chain._web3, whale_address, FixedPoint(10).scaled_value)
+
+        # Transfer base from whale to account
+        token_contract.functions.transfer(self.account.address, amount.scaled_value).transact({"from": whale_address})
+
     def add_funds(
         self,
         base: FixedPoint | None = None,
@@ -262,27 +308,11 @@ class HyperdriveAgent:
                 if whale_account_addr == pool.interface.hyperdrive_address:
                     raise ValueError(f"Cannot use the hyperdrive pool itself as the whale for {pool.name}.")
 
-                # Ensure whale has enough base to transfer
-                whale_balance = base_token_contract.functions.balanceOf(whale_account_addr).call()
-                if whale_balance < base.scaled_value:
-                    raise ValueError(
-                        f"Whale does not have enough base to transfer. {whale_balance=}, {base.scaled_value=}."
-                    )
-
-                # RPC anvil call to impersonate account
-                response = self.chain._web3.provider.make_request(
-                    method=RPCEndpoint("anvil_impersonateAccount"), params=[whale_account_addr]
-                )
-                # ensure response is valid
-                if "result" not in response:
-                    raise KeyError("Response did not have a result.")
-
-                # Give eth to the whale account for gas
-                _ = set_anvil_account_balance(self.chain._web3, whale_account_addr, FixedPoint(10).scaled_value)
-
-                # Transfer base from whale to account
-                base_token_contract.functions.transfer(self.account.address, base.scaled_value).transact(
-                    {"from": whale_account_addr}
+                self.fund_from_whale(
+                    ERC20Contract(base_token_contract.address),
+                    whale_account_addr,
+                    base,
+                    fund_whale_with_eth=True,
                 )
 
             else:
