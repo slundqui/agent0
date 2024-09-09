@@ -11,6 +11,7 @@ from eth_typing import BlockNumber, ChecksumAddress
 from fixedpointmath import FixedPoint
 from hyperdrivetypes import FactoryConfig, Fees, PoolDeployConfig
 from web3 import Web3
+from web3.contract import Contract
 
 from agent0.chainsync.analysis import fill_pnl_values
 from agent0.chainsync.db.hyperdrive import (
@@ -23,8 +24,6 @@ from agent0.chainsync.db.hyperdrive import (
 )
 from agent0.chainsync.exec import acquire_data, analyze_data
 from agent0.ethpy.hyperdrive import (
-    DeployedHyperdriveFactory,
-    DeployedHyperdrivePool,
     HyperdriveDeployType,
     deploy_base_and_vault,
     deploy_hyperdrive_factory,
@@ -293,15 +292,11 @@ class LocalHyperdrive(Hyperdrive):
             self.config = config
 
         # Deploys a hyperdrive factory + pool on the chain
-        self._deployed_hyperdrive_factory = None
-        self._deployed_hyperdrive_pool = None
         if deploy:
             if hyperdrive_address is not None:
                 raise ValueError("Cannot specify a hyperdrive address if deploying a Hyperdrive contract.")
-            (self._deployed_hyperdrive_factory, self._deployed_hyperdrive_pool) = self._deploy_hyperdrive(
-                self.config, chain
-            )
-            hyperdrive_address = self._deployed_hyperdrive_pool.hyperdrive_contract.address
+            hyperdrive_contract = self.deploy_hyperdrive(chain)
+            hyperdrive_address = hyperdrive_contract.address
 
         else:
             if hyperdrive_address is None:
@@ -432,11 +427,24 @@ class LocalHyperdrive(Hyperdrive):
             other.hyperdrive_address,
         )
 
-    def _deploy_hyperdrive(
-        self, config: Config, chain: LocalChain
-    ) -> tuple[DeployedHyperdriveFactory, DeployedHyperdrivePool]:
+    def deploy_hyperdrive(self, chain: LocalChain) -> Contract:
+        """Deploys the hyperdrive pool and supporting contracts on the rpc_uri chain.
+
+        Arguments
+        ---------
+        chain: LocalChain
+            The chain to deploy on.
+
+        Returns
+        -------
+        DeployedHyperdrivePool
+            Containing the deployed factory, the deploy coordinator contracts, the updated
+            factory config, and the hyperdrive registry contract.
+
+        """
+
         # sanity check (also for type checking), should get set in __post_init__
-        assert config.minimum_share_reserves is not None
+        assert self.config.minimum_share_reserves is not None
         factory_deploy_config = FactoryConfig(
             governance="",  # will be determined in the deploy function
             deployerCoordinatorManager="",  # will be determined in the deploy function
@@ -445,19 +453,19 @@ class LocalHyperdrive(Hyperdrive):
             feeCollector="",  # will be determined in the deploy function
             sweepCollector="",  # will be determined in the deploy function
             checkpointRewarder="",  # will be determined in the deploy function
-            checkpointDurationResolution=config.factory_checkpoint_duration_resolution,
-            minCheckpointDuration=config.factory_min_checkpoint_duration,
-            maxCheckpointDuration=config.factory_max_checkpoint_duration,
-            minPositionDuration=config.factory_min_position_duration,
-            maxPositionDuration=config.factory_max_position_duration,
-            minCircuitBreakerDelta=config.factory_min_circuit_breaker_delta.scaled_value,
-            maxCircuitBreakerDelta=config.factory_max_circuit_breaker_delta.scaled_value,
-            minFixedAPR=config.factory_min_fixed_apr.scaled_value,
-            maxFixedAPR=config.factory_max_fixed_apr.scaled_value,
-            minTimeStretchAPR=config.factory_min_time_stretch_apr.scaled_value,
-            maxTimeStretchAPR=config.factory_max_time_stretch_apr.scaled_value,
-            minFees=config._factory_min_fees,  # pylint: disable=protected-access
-            maxFees=config._factory_max_fees,  # pylint: disable=protected-access
+            checkpointDurationResolution=self.config.factory_checkpoint_duration_resolution,
+            minCheckpointDuration=self.config.factory_min_checkpoint_duration,
+            maxCheckpointDuration=self.config.factory_max_checkpoint_duration,
+            minPositionDuration=self.config.factory_min_position_duration,
+            maxPositionDuration=self.config.factory_max_position_duration,
+            minCircuitBreakerDelta=self.config.factory_min_circuit_breaker_delta.scaled_value,
+            maxCircuitBreakerDelta=self.config.factory_max_circuit_breaker_delta.scaled_value,
+            minFixedAPR=self.config.factory_min_fixed_apr.scaled_value,
+            maxFixedAPR=self.config.factory_max_fixed_apr.scaled_value,
+            minTimeStretchAPR=self.config.factory_min_time_stretch_apr.scaled_value,
+            maxTimeStretchAPR=self.config.factory_max_time_stretch_apr.scaled_value,
+            minFees=self.config._factory_min_fees,  # pylint: disable=protected-access
+            maxFees=self.config._factory_max_fees,  # pylint: disable=protected-access
             linkerFactory="",  # will be determined in the deploy function
             linkerCodeHash=bytes(),  # will be determined in the deploy function
         )
@@ -467,33 +475,33 @@ class LocalHyperdrive(Hyperdrive):
             vaultSharesToken="",  # will be determined in the deploy function
             linkerFactory="",  # will be determined in the deploy function
             linkerCodeHash=bytes(),  # will be determined in the deploy function
-            minimumShareReserves=config.minimum_share_reserves.scaled_value,
-            minimumTransactionAmount=config.minimum_transaction_amount.scaled_value,
-            circuitBreakerDelta=config.circuit_breaker_delta.scaled_value,
-            positionDuration=config.position_duration,
-            checkpointDuration=config.checkpoint_duration,
+            minimumShareReserves=self.config.minimum_share_reserves.scaled_value,
+            minimumTransactionAmount=self.config.minimum_transaction_amount.scaled_value,
+            circuitBreakerDelta=self.config.circuit_breaker_delta.scaled_value,
+            positionDuration=self.config.position_duration,
+            checkpointDuration=self.config.checkpoint_duration,
             timeStretch=0,
             governance="",  # will be determined in the deploy function
             feeCollector="",  # will be determined in the deploy function
             sweepCollector="",  # will be determined in the deploy function
             checkpointRewarder="",  # will be determined in the deploy function
-            fees=config._fees,  # pylint: disable=protected-access
+            fees=self.config._fees,  # pylint: disable=protected-access
         )
 
         # TODO move deploying factory to be part of a parent, where deploying hyperdrive
         # only uses the factory
         deployed_base_and_vault = deploy_base_and_vault(
             chain._web3,
-            config.deploy_type,
+            self.config.deploy_type,
             chain.get_deployer_account(),
-            config.initial_variable_rate,
+            self.config.initial_variable_rate,
         )
 
         deployed_hyperdrive_factory = deploy_hyperdrive_factory(
             chain._web3,
             chain.get_deployer_account(),
             deployed_base_and_vault,
-            config.deploy_type,
+            self.config.deploy_type,
             factory_deploy_config,
         )
 
@@ -502,13 +510,13 @@ class LocalHyperdrive(Hyperdrive):
             chain.get_deployer_account(),
             deployed_base_and_vault,
             deployed_hyperdrive_factory,
-            config.deploy_type,
-            config.initial_liquidity,
-            config.initial_fixed_apr,
-            config.initial_time_stretch_apr,
+            self.config.deploy_type,
+            self.config.initial_liquidity,
+            self.config.initial_fixed_apr,
+            self.config.initial_time_stretch_apr,
             pool_deploy_config,
         )
-        return (deployed_hyperdrive_factory, deployed_hyperdrive_pool)
+        return deployed_hyperdrive_pool.hyperdrive_contract
 
     def set_variable_rate(self, variable_rate: FixedPoint) -> None:
         """Sets the underlying variable rate for this pool.
